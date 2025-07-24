@@ -1,0 +1,166 @@
+<!-- taskpane.html (vollständig, Stand Juli 2025) -->
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:12px;background:#f7f7f7}
+    .field{margin-bottom:10px}
+    label{font-weight:600;display:block;margin-bottom:3px}
+    input[type=text],input[type=number],select{width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:14px}
+    .toggle{display:flex;align-items:center;margin:4px 0}
+    .toggle input{margin-right:6px;transform:scale(1.1)}
+    textarea{width:100%;height:165px;margin-top:12px;padding:8px;border-radius:6px;border:1px solid #aaa;font-family:Consolas,monospace;font-size:13px}
+    button{background:#0078d4;color:#fff;border:none;border-radius:4px;padding:8px 16px;font-size:14px;cursor:pointer;margin-top:10px}
+    button:hover{background:#005fa1}
+  </style>
+</head>
+<body>
+  <h3>📦 Angebots‑Generator</h3>
+  <div class="field"><label>Name Ansprechpartner</label><input id="inputName" type="text"/></div>
+  <div class="field"><label>Von</label><input id="inputVon" type="text" maxlength="4"/></div>
+  <div class="field"><label>Nach</label><input id="inputNach" type="text" maxlength="4"/></div>
+  <div class="field"><label>Gewicht (kg)</label><input id="inputGewicht" type="number" step="0.1"/></div>
+  <div class="field"><label>Volumen (m³)</label><input id="inputM3" type="number" step="0.01"/></div>
+  <div class="field"><label>Lademeter</label><input id="inputLdm" type="number" step="0.01"/></div>
+  <div class="field"><label>Kunde</label>
+    <select id="dropdownKunde"><option value="Standard">Standard</option><option value="DHL">DHL</option></select></div>
+  <div class="field"><label>Positions‑Anzahl</label>
+    <select id="dropdownPos">
+  <option value="">–</option>
+  <option value="1 Pos">1 Pos</option>
+  <option value="2 Pos">2 Pos</option>
+  <option value="3 Pos">3 Pos</option>
+  <option value="4 Pos">4 Pos</option>
+</select></div>
+  <div class="field"><label>Sprache</label>
+    <select id="dropdownLang"><option value="de">Deutsch</option><option value="en">Englisch</option></select></div>
+  <div class="field"><label>Fixpreis (optional)</label><input id="inputFixrate" type="number" step="0.01"/></div>
+  <div class="toggle"><input id="toggleFTL" type="checkbox"/> FTL</div>
+  <div class="toggle"><input id="toggleFuelNat" type="checkbox"/> Fuel National</div>
+  <div class="toggle"><input id="toggleFuelInt" type="checkbox"/> Fuel International</div>
+  <div class="toggle"><input id="toggleTraffic" type="checkbox"/> Traffic</div>
+  <div class="toggle"><input id="toggleHandling" type="checkbox"/> Handling Direktabgabe</div>
+  <div class="toggle"><input id="toggleKuehl" type="checkbox"/> Kühlzuschlag</div>
+  <div class="toggle"><input id="toggleT1" type="checkbox"/> T1</div>
+  <div class="toggle"><input id="toggleTCH" type="checkbox"/> TCH</div>
+  <div class="toggle"><input id="toggleADR" type="checkbox"/> ADR 10 %</div>
+  <div class="toggle"><input id="toggleADRFTL" type="checkbox"/> ADR 10 % FTL</div>
+  <div class="field"><label>Spezial 1</label><input id="inputSpezialText1" type="text" placeholder="Bezeichnung"/><input id="inputSpezialCHF1" type="number" step="0.01" placeholder="CHF"/></div>
+  <div class="field"><label>Spezial 2</label><input id="inputSpezialText2" type="text" placeholder="Bezeichnung"/><input id="inputSpezialCHF2" type="number" step="0.01" placeholder="CHF"/></div>
+
+  <button onclick="generateOffer()">💬 Angebot generieren</button>
+  <textarea id="angebotText" placeholder="Vorschautext erscheint hier…"></textarea>
+  <button onclick="insertHTML()">📨 In Mail einfügen</button>
+
+<script>
+Office.onReady(()=>{
+  const mail = Office.context.mailbox.item;
+  // Name vorausfüllen
+  document.getElementById('inputName').value = mail?.from?.displayName || '';
+
+  // Body für Auto‑Parsing
+  mail.body.getAsync('text', res=>{
+    if(res.status!==Office.AsyncResultStatus.Succeeded) return;
+    const body=res.value.toLowerCase();
+
+    // Kunde: DHL
+    if(/\bdhl\b/.test(body)) document.getElementById('dropdownKunde').value='DHL';
+
+    // Von/Nach ICAO/IATA oder PLZ(4‑stellig)
+    const von=(body.match(/von[:\s]*([a-z0-9]{3,4})/)||[])[1]||'';
+    const nach=(body.match(/nach[:\s]*([a-z0-9]{3,4})/)||[])[1]||'';
+    if(von) document.getElementById('inputVon').value=von.toUpperCase();
+    if(nach) document.getElementById('inputNach').value=nach.toUpperCase();
+
+    // Gewicht kg
+    const kg=(body.match(/(\d+[\.,]?\d*)\s*kg/)||[])[1];
+    if(kg) document.getElementById('inputGewicht').value=kg.replace(',','.');
+
+    // m3
+    const m3=(body.match(/(\d+[\.,]?\d*)\s*m3|m\u00b3/)||[])[1];
+    if(m3) document.getElementById('inputM3').value=m3.replace(',','.');
+
+    // LDM
+    const ldm=(body.match(/(\d+[\.,]?\d*)\s*(ldm|lademeter)/) ||[])[1];
+    if(ldm) document.getElementById('inputLdm').value=ldm.replace(',','.');
+
+    // Kühler: Temperaturen erkennen (‑20…+25 °C)
+    if(/-?\d+\s*°\s*c/.test(body)) document.getElementById('toggleKuehl').checked=true;
+  });
+});
+
+function generateOffer(){
+  const get=id=>document.getElementById(id);
+  const name=get('inputName').value||'Kunde';
+  const lang=get('dropdownLang').value;
+  const von=get('inputVon').value.toUpperCase();
+  const nach=get('inputNach').value.toUpperCase();
+  const kg=get('inputGewicht').value;
+  const vol=get('inputM3').value;
+  const ldm=get('inputLdm').value;
+
+  // simple Platzhalter‑Tarif
+  let basis=800;
+  if(get('toggleFTL').checked) basis=2000;
+  if(get('inputFixrate').value) basis=parseFloat(get('inputFixrate').value);
+
+  let zus=0;
+  if(get('toggleFuelNat').checked) zus+=basis*0.06;
+  if(get('toggleFuelInt').checked) zus+=basis*0.05;
+  if(get('toggleKuehl').checked) zus+=118;
+  if(get('toggleHandling').checked) zus+=15;
+  if(get('toggleTraffic').checked) zus+=basis*0.035;
+  if(get('toggleADR').checked) zus+=basis*0.1;
+  if(get('toggleADRFTL').checked) zus+=basis*0.1;
+  if(get('toggleT1').checked||get('toggleTCH').checked) zus+=80;
+
+  // Spezial
+  const sp1txt=get('inputSpezialText1').value;
+  const sp1val=parseFloat(get('inputSpezialCHF1').value||0);
+  const sp2txt=get('inputSpezialText2').value;
+  const sp2val=parseFloat(get('inputSpezialCHF2').value||0);
+  zus+=sp1val+sp2val;
+
+  const total=(basis+zus).toFixed(2);
+
+  // Preisliste Tabelle
+  let rows=`<tr><td>Transport</td><td align='right'>${basis.toFixed(2)}</td></tr>`;
+  if(get('toggleFuelNat').checked) rows+=`<tr><td>Fuel Nat 6 %</td><td align='right'>${(basis*0.06).toFixed(2)}</td></tr>`;
+  if(get('toggleFuelInt').checked) rows+=`<tr><td>Fuel Int 5 %</td><td align='right'>${(basis*0.05).toFixed(2)}</td></tr>`;
+  if(get('toggleKuehl').checked) rows+=`<tr><td>Kühlzuschlag</td><td align='right'>118.00</td></tr>`;
+  if(get('toggleHandling').checked) rows+=`<tr><td>Handling</td><td align='right'>15.00</td></tr>`;
+  if(get('toggleTraffic').checked) rows+=`<tr><td>Traffic 3.5 %</td><td align='right'>${(basis*0.035).toFixed(2)}</td></tr>`;
+  if(get('toggleADR').checked) rows+=`<tr><td>ADR 10 %</td><td align='right'>${(basis*0.1).toFixed(2)}</td></tr>`;
+  if(get('toggleADRFTL').checked) rows+=`<tr><td>ADR 10 % FTL</td><td align='right'>${(basis*0.1).toFixed(2)}</td></tr>`;
+  if(get('toggleT1').checked||get('toggleTCH').checked) rows+=`<tr><td>T1/TCH</td><td align='right'>80.00</td></tr>`;
+  if(sp1txt) rows+=`<tr><td>${sp1txt}</td><td align='right'>${sp1val.toFixed(2)}</td></tr>`;
+  if(sp2txt) rows+=`<tr><td>${sp2txt}</td><td align='right'>${sp2val.toFixed(2)}</td></tr>`;
+
+  rows+=`<tr style='font-weight:bold;border-top:1px solid #ccc'><td>Total</td><td align='right'>CHF ${total}</td></tr>`;
+
+  const line=`${kg?kg+' kg / ':''}${vol?vol+' m³ / ':''}${ldm?ldm+' LDM':''}`.replace(/\s\/\s*$/,'');
+  const greeting=lang==='de'?`Hallo ${name},`:`Dear ${name},`;
+  const intro=lang==='de'?`Vielen Dank für die Anfrage – gerne offerieren wir wie folgt:`:`Thank you for your request – we’re pleased to offer the following:`;
+  const footer=lang==='de'?`Lade‑/Entladetermin nach Absprache.<br>Bedingungen gemäss unseren AGB.`:`Loading/unloading upon request.<br>Our general T&Cs apply.`;
+
+  const html=`<p>${greeting}</p><p>${intro}</p><p><strong>${von} → ${nach}</strong><br>${line}</p>
+    <div style='background:#f2f2f2;padding:8px;border-radius:6px;'>
+    <table style='width:100%;font-size:14px;border-collapse:collapse;'>${rows}</table></div>
+    <p>${footer}</p>`;
+
+  document.getElementById('angebotText').value=html;
+}
+
+function insertHTML(){
+  const html=document.getElementById('angebotText').value;
+  Office.context.mailbox.item.body.setAsync(html,{coercionType:Office.CoercionType.Html},r=>{
+    if(r.status===Office.AsyncResultStatus.Succeeded) alert('Angebot eingefügt!');
+    else console.error(r.error);
+  });
+}
+</script>
+</body>
+</html>
